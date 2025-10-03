@@ -129,24 +129,26 @@ st.markdown("""
         border-left: 3px solid #A3885C; /* Gold accent */
         border-radius: 10px;
     }
-    /* --- NEW ROBUST HIDING CSS --- */
     
-    /* HIDE FOOTER ("Built with Streamlit 🎈") */
+    /* --- ULTIMATE HIDING CSS (Targets multiple potential classes/IDs) --- */
+    
+    /* 1. HIDE FOOTER (Built with Streamlit) - Targets the common footer tag and test ID */
     footer { visibility: hidden; }
-
-    /* HIDE THE ENTIRE HEADER BAR (Includes full-screen button and menu) */
-    /* Targets the specific data-testid used by Streamlit for the main header */
+    [data-testid="stFooter"] { visibility: hidden !important; }
+    
+    /* 2. HIDE FULLSCREEN BUTTON & MENU - Targets the header, top-right menu, and sidebar open button */
     [data-testid="stHeader"] {
         display: none !important;
     }
-
-    /* Fallback for the old footer class (kept for safety) */
-    .st-emotion-cache-czk5ad { visibility: hidden; }
     
-    /* Fallback for hiding the main app header */
-    .stApp header {
+    /* More aggressive targeting for the menu button and related elements */
+    [data-testid="stToolbar"], [data-testid="stSidebarToggleButton"] {
         display: none !important;
     }
+
+    /* Fallback for the old footer class */
+    .st-emotion-cache-czk5ad { visibility: hidden; }
+    
     </style>
 """, unsafe_allow_html=True)
 

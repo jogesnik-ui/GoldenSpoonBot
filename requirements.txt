@@ -2,3 +2,4 @@ streamlit
 langchain-google-genai
 tavily-python
 python-dotenv
+langchain-community 

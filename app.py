@@ -129,7 +129,11 @@ st.markdown("""
         border-left: 3px solid #A3885C; /* Gold accent */
         border-radius: 10px;
     }
-    /* Hide the Streamlit footer when embedded */
+    /* HIDE FOOTER ("Built with Streamlit") */
+    footer { visibility: hidden; }
+    /* HIDE TOP-RIGHT MENU (Including the full-screen option) */
+    .css-15tx5s7 { visibility: hidden; }
+    /* Hide the Streamlit footer when embedded (old class, kept for safety) */
     .st-emotion-cache-czk5ad { visibility: hidden; }
     </style>
 """, unsafe_allow_html=True)

@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 from dotenv import load_dotenv
+import random
 
 # --- LangChain Imports ---
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,6 +10,7 @@ from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import MessagesPlaceholder 
+from langchain_core.tools import tool # Import the tool decorator
 
 # Load environment variables (API keys)
 load_dotenv()
@@ -29,24 +31,45 @@ elif "TAVILY_API_KEY" in st.secrets:
 else:
     TAVILY_API_KEY = None
 
+# --- NEW: Tool Definitions for Booking Simulation ---
 
-# --- System Prompt Definition (EMOJIS REMOVED) ---
+@tool
+def check_and_book_reservation(date: str, time: str, party_size: int) -> str:
+    """
+    Checks the restaurant's internal booking system for table availability and attempts to make a reservation.
+    Requires a specific date (e.g., '2025-10-15'), a time (e.g., '7:00 PM'), and the number of people (e.g., 4).
+    """
+    if party_size > 6:
+        return f"Booking failed. The Golden Spoon only accepts online reservations for parties of 6 or fewer. Please call for a party of {party_size}."
+    
+    # Simulate availability (randomly fail about 40% of the time)
+    if random.random() < 0.4:
+        # Simulate being booked at prime times
+        return f"Booking failed. We are fully booked for a party of {party_size} on {date} at {time}. Please try a different time or date."
+    else:
+        # Simulate successful booking
+        confirmation_code = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
+        return f"Booking successful! Your reservation for {party_size} guests on {date} at {time} is confirmed. Confirmation Code: {confirmation_code}. We look forward to seeing you!"
+
+# --- System Prompt Definition (Updated for Tool Use) ---
 SYSTEM_PROMPT = """
 You are the Golden Spoon Restaurant AI. Your job is to help customers with reservations, menu inquiries, and general questions about the Golden Spoon Restaurant.
 
 **Your Identity and Role:**
 * You are a professional, polite, and friendly assistant.
 * Your responses should be concise and elegant, matching the restaurant's upscale branding.
-* **SCOPE RESTRICTION (NEW):** You MUST only answer questions related to the Golden Spoon Restaurant. If a user asks a question unrelated to the restaurant, politely state: "I apologize, but my purpose is to assist you with inquiries regarding the Golden Spoon Restaurant only."
-* You have access to a real-time search tool for up-to-date information (like the current day/time or specific restaurant details). Use it only when necessary to answer a question that requires external, non-menu knowledge.
-* **RESERVATIONS:** If a user asks to make a reservation, respond with the following, and nothing else: "To make a reservation, please call us directly at (555) 123-4567 during business hours, or visit our website's booking portal."
+* **SCOPE RESTRICTION:** You MUST only answer questions related to the Golden Spoon Restaurant. If a user asks a question unrelated to the restaurant, politely state: "I apologize, but my purpose is to assist you with inquiries regarding the Golden Spoon Restaurant only."
+* You have access to a real-time search tool (Tavily Search) for up-to-date information. Use it only when necessary.
+* **RESERVATIONS:** * When the user asks to check availability or make a reservation, you MUST use the `check_and_book_reservation` tool first.
+    * If the tool returns a confirmation, present the confirmation code and details to the user.
+    * If the tool fails or suggests calling, inform the user with the tool's output.
 * **RESTAURANT KNOWLEDGE:**
     * **Name:** Golden Spoon Restaurant
     * **Cuisine:** Classic French techniques blended with local, seasonal ingredients.
     * **Signature Dishes:** Seared Scallops, Signature Filet Mignon, Handmade Lobster Ravioli, Decadent Lava Cake.
     * **Atmosphere:** Luxurious and welcoming.
     * **Hours:** Dinner: Tues - Sat, 5:00 PM - 10:00 PM | Brunch: Sun, 10:00 AM - 2:00 PM.
-* Do not invent information. If the answer is not in your knowledge or search results, politely decline.
+* Do not invent information. If the answer is not in your knowledge, the tool's output, or search results, politely decline.
 """
 
 # --- Agent Initialization ---
@@ -64,9 +87,9 @@ def create_gemini_agent():
         temperature=0.0
     )
 
-    # 2. Define Tools
+    # 2. Define Tools (ADD THE NEW BOOKING TOOL)
     tavily_tool = TavilySearch(api_key=TAVILY_API_KEY, max_results=3)
-    tools = [tavily_tool]
+    tools = [tavily_tool, check_and_book_reservation]
 
     # 3. Create Prompt Template (FIXED: Using MessagesPlaceholder)
     prompt = ChatPromptTemplate.from_messages(
@@ -92,7 +115,7 @@ def create_gemini_agent():
 
 st.set_page_config(
     page_title="Golden Spoon AI Assistant",
-    page_icon=None, # EMOJI REMOVED
+    page_icon=None,
     layout="centered"
 )
 
@@ -130,33 +153,20 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    /* --- ULTIMATE HIDING CSS (Targets multiple potential classes/IDs) --- */
-    
-    /* 1. HIDE FOOTER (Built with Streamlit) */
-    /* *** Use display: none !important for aggressive removal *** */
+    /* --- ULTIMATE HIDING CSS --- */
     footer { display: none !important; }
     [data-testid="stFooter"] { display: none !important; }
-    
-    /* 2. HIDE FULLSCREEN BUTTON & MENU (Includes your suggested IDs) */
-    #MainMenu { display: none !important; } /* Hides the top-right hamburger menu */
-    header { display: none !important; } /* Hides the HTML header tag */
-    
-    [data-testid="stHeader"] {
-        display: none !important; /* Hides the header bar, containing the full-screen button */
-    }
-    
-    /* More aggressive targeting for other persistent elements */
+    #MainMenu { display: none !important; } 
+    header { display: none !important; } 
+    [data-testid="stHeader"] { display: none !important; }
     [data-testid="stToolbar"] { display: none !important; }
     [data-testid="stSidebarToggleButton"] { display: none !important; }
-    
-    /* Fallback for the old footer class */
     .st-emotion-cache-czk5ad { display: none !important; }
     
     </style>
 """, unsafe_allow_html=True)
 
 
-# EMOJI REMOVED
 st.markdown('<h1 class="main-header">Golden Spoon AI Assistant</h1>', unsafe_allow_html=True) 
 st.caption("Ask about the menu, hours, or general inquiries.")
 
@@ -169,7 +179,6 @@ agent_executor = st.session_state.agent_executor
 
 # Initialize chat history in session state
 if "messages" not in st.session_state:
-    # EMOJI REMOVED
     st.session_state.messages = [
         AIMessage(
             content="Welcome to Golden Spoon Restaurant! I am your AI Assistant. How can I help you today?"

@@ -1,170 +1,204 @@
-import os
-import sys
 import streamlit as st
+import os
 from dotenv import load_dotenv
+
+# --- LangChain Imports ---
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
 from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import MessagesPlaceholder 
 
-# --- (A) Custom CSS for Professional Branding ---
-# We use st.markdown to inject CSS, giving the app a distinct, non-generic look.
-def apply_custom_css():
-    st.markdown(
-        """
-        <style>
-        /* 1. Global Theming for a professional look */
-        /* Set the main background to a soft off-white */
-        .stApp {
-            background-color: #FAFAFA; /* Off-White/Light Gray */
-        }
-        
-        /* 2. Style the Assistant's Chat Bubbles (SpoonBot) */
-        /* Target the chat message content div for the assistant */
-        [data-testid="stChatMessage"][data-state="visible"]:nth-child(even) [data-testid="stChatMessageContent"] {
-            background-color: #F8F4E3; /* Soft light gold for the assistant's reply */
-            border-left: 5px solid #A87A4F; /* Golden brown accent line */
-            color: #333333; /* Dark gray text for contrast */
-            border-radius: 0.75rem;
-            padding: 1rem;
-        }
+# Load environment variables (API keys)
+load_dotenv()
 
-        /* 3. Style the User's Chat Bubbles */
-        /* Target the chat message content div for the user */
-        [data-testid="stChatMessage"][data-state="visible"]:nth-child(odd) [data-testid="stChatMessageContent"] {
-            background-color: #E3E3E3; /* Light gray for the user's input */
-            color: #1A1A1A; /* Very dark text */
-            border-radius: 0.75rem;
-            padding: 1rem;
-        }
+# --- Configuration ---
+# Set up API Keys, checking Streamlit secrets first, then .env file/OS environment
+if os.environ.get("GOOGLE_API_KEY"):
+    GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
+elif "GOOGLE_API_KEY" in st.secrets:
+    GEMINI_API_KEY = st.secrets["GOOGLE_API_KEY"]
+else:
+    GEMINI_API_KEY = None
+    
+if os.environ.get("TAVILY_API_KEY"):
+    TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
+elif "TAVILY_API_KEY" in st.secrets:
+    TAVILY_API_KEY = st.secrets["TAVILY_API_KEY"]
+else:
+    TAVILY_API_KEY = None
 
-        /* 4. Customizing Header and Chat Input */
-        /* Change the main app title color (using the primary color as the accent) */
-        .st-emotion-cache-1jm6hrg h1 {
-            color: #8B0000; /* Deep Maroon/Red */
-        }
-        
-        /* Change the input box color for a better look */
-        div.st-emotion-cache-1c9v92d {
-             background-color: #FFFFFF; /* White input box */
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
+
+# --- System Prompt Definition (EMOJIS REMOVED) ---
+SYSTEM_PROMPT = """
+You are the Golden Spoon Restaurant AI. Your job is to help customers with reservations, menu inquiries, and general questions about the Golden Spoon Restaurant.
+
+**Your Identity and Role:**
+* You are a professional, polite, and friendly assistant.
+* Your responses should be concise and elegant, matching the restaurant's upscale branding.
+* You have access to a real-time search tool for up-to-date information (like the current day/time or specific restaurant details). Use it only when necessary to answer a question that requires external, non-menu knowledge.
+* **RESERVATIONS:** If a user asks to make a reservation, respond with the following, and nothing else: "To make a reservation, please call us directly at (555) 123-4567 during business hours, or visit our website's booking portal."
+* **RESTAURANT KNOWLEDGE:**
+    * **Name:** Golden Spoon Restaurant
+    * **Cuisine:** Classic French techniques blended with local, seasonal ingredients.
+    * **Signature Dishes:** Seared Scallops, Signature Filet Mignon, Handmade Lobster Ravioli, Decadent Lava Cake.
+    * **Atmosphere:** Luxurious and welcoming.
+    * **Hours:** Dinner: Tues - Sat, 5:00 PM - 10:00 PM | Brunch: Sun, 10:00 AM - 2:00 PM.
+* Do not invent information. If the answer is not in your knowledge or search results, politely decline.
+"""
+
+# --- Agent Initialization ---
+
+def create_gemini_agent():
+    """Initializes the Gemini model, tools, and the LangChain AgentExecutor."""
+    if not GEMINI_API_KEY:
+        st.error("Gemini API Key is missing. Please check your environment variables or Streamlit secrets.")
+        return None
+
+    # 1. Initialize the LLM (Gemini 2.5 Flash)
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        api_key=GEMINI_API_KEY,
+        temperature=0.0
     )
 
-# --- (1) Initial Setup: Load Keys, Initialize LLM/Agent (Runs once) ---
+    # 2. Define Tools
+    tavily_tool = TavilySearch(api_key=TAVILY_API_KEY, max_results=3)
+    tools = [tavily_tool]
 
-load_dotenv()
-google_api_key = os.getenv("GOOGLE_API_KEY")
-tavily_api_key = os.getenv("TAVILY_API_KEY")
+    # 3. Create Prompt Template (FIXED: Using MessagesPlaceholder)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            # Use MessagesPlaceholder for robust handling of chat history
+            MessagesPlaceholder(variable_name="chat_history"), 
+            ("human", "{input}"),
+            # Use MessagesPlaceholder for robust handling of agent scratchpad
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
 
-if not google_api_key:
-    st.error("FATAL ERROR: GOOGLE_API_KEY not found in environment variables.")
-    st.stop()
+    # 4. Create the Tool Calling Agent
+    agent = create_tool_calling_agent(llm, tools, prompt)
 
-# Initialize the Language Model (LLM) and Tools
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0.2, 
-    google_api_key=google_api_key
+    # 5. Create the Agent Executor (Runnable)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+    return agent_executor
+
+# --- Streamlit UI Setup ---
+
+st.set_page_config(
+    page_title="Golden Spoon AI Assistant",
+    page_icon=None, # EMOJI REMOVED
+    layout="centered"
 )
 
-# We keep the search tool available
-search_tool = TavilySearch(
-    max_results=1, 
-    api_key=tavily_api_key
-)
-tools = [search_tool]
+# Apply custom CSS for a more elegant look, matching the HTML theme
+st.markdown("""
+    <style>
+    /* Gold theme for Streamlit */
+    .stApp {
+        background-color: #FBF7F0; /* Creamy White */
+    }
+    .main-header {
+        color: #A3885C; /* Primary Gold */
+        font-family: 'Playfair Display', serif;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .st-emotion-cache-1c7yb1q { /* Streamlit chat input container */
+        border-top: 1px solid #A3885C;
+    }
+    .st-emotion-cache-4oy39v { /* Chat container background */
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        padding: 10px;
+    }
+    .stChatMessage.stChatMessage--user { /* User message bubble */
+        background-color: #3B3B3B; /* Deep Charcoal */
+        color: white;
+        border-radius: 10px;
+    }
+    .stChatMessage.stChatMessage--assistant { /* Assistant message bubble */
+        background-color: #EAE3D6; /* Light Cream/Beige */
+        color: #1E1E1E;
+        border-left: 3px solid #A3885C; /* Gold accent */
+        border-radius: 10px;
+    }
+    /* Hide the Streamlit footer when embedded */
+    .st-emotion-cache-czk5ad { visibility: hidden; }
+    </style>
+""", unsafe_allow_html=True)
 
 
-# --- (2) The Key Change: Restaurant-Specific System Prompt ---
-
-RESTAURANT_INFO = (
-    "You are 'SpoonBot,' the friendly AI assistant for **The Golden Spoon** restaurant. "
-    "Your tone should be warm, professional, and concise. "
-    "Your primary goal is to answer customer questions related to the restaurant's services. "
-    "NEVER answer questions unrelated to the restaurant. If asked an irrelevant question, politely redirect the user to ask about the restaurant. "
-    "Do not use external search (the provided search tool) unless it's strictly necessary for a very specific, real-time detail that is *not* in your known facts (e.g., today's date or a current event). "
-    "Your known facts are: "
-    "1. **Menu Highlights:** Famous for the 'Golden Steak' ($45) and the 'Chef's Signature Pasta' ($30). We offer vegetarian and gluten-free options. "
-    "2. **Hours:** Open Monday to Saturday from 5:00 PM to 10:00 PM. We are closed on Sundays. "
-    "3. **Bookings:** Reservations are highly recommended. Guests can book by calling us at (555) 123-GSPD or through our website booking form. "
-    "4. **Location:** Downtown at 101 Culinary Lane. "
-    "Keep answers short (1-3 sentences) and always maintain a professional, friendly, and helpful demeanor. **Use emojis sparingly and appropriately, like a $\\text{🍽️}$ or $\\text{🥄}$ at the end of a message.**"
-)
-
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", RESTAURANT_INFO),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ]
-)
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# EMOJI REMOVED
+st.markdown('<h1 class="main-header">Golden Spoon AI Assistant</h1>', unsafe_allow_html=True) 
+st.caption("Ask about the menu, hours, or general inquiries.")
 
 
-# --- (3) Streamlit Interface Setup ---
+# Initialize the agent once
+if "agent_executor" not in st.session_state:
+    st.session_state.agent_executor = create_gemini_agent()
 
-# Apply the CSS first!
-apply_custom_css()
+agent_executor = st.session_state.agent_executor
 
-st.set_page_config(page_title="The Golden Spoon Bot 🥄", layout="centered")
-st.title("The Golden Spoon AI Concierge 🍽️") 
-st.caption("Ask me about our menu, hours, or how to book a table!")
-
-# Initialize chat history in Streamlit's session state
+# Initialize chat history in session state
 if "messages" not in st.session_state:
-    st.session_state.messages = []
-    # Add an opening welcome message from the assistant
-    st.session_state.messages.append({"role": "assistant", "content": "Welcome! I'm SpoonBot, your assistant for The Golden Spoon. How may I help you today? 🥄"})
+    # EMOJI REMOVED
+    st.session_state.messages = [
+        AIMessage(
+            content="Welcome to Golden Spoon Restaurant! I am your AI Assistant. How can I help you today?"
+        )
+    ]
 
-# Display previous chat messages
+# Display chat messages from history on app rerun
 for message in st.session_state.messages:
-    # IMPORTANT FIX: Use st.markdown inside st.chat_message to prevent weird text formatting
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    with st.chat_message(message.type):
+        st.markdown(message.content)
 
-
-# --- (4) Handle User Input and Generate Response ---
-
-if prompt_input := st.chat_input("Ask me a question about The Golden Spoon..."):
-    # 1. Add user message to history and display it
-    st.session_state.messages.append({"role": "user", "content": prompt_input})
-    with st.chat_message("user"):
-        st.markdown(prompt_input) # Use st.markdown here too
-
-    # 2. Prepare chat history for the Agent (LangChain format)
-    agent_history = []
-    for message in st.session_state.messages:
-        if message["role"] == "user" and message["content"] != prompt_input:
-            agent_history.append(HumanMessage(content=message["content"]))
-        elif message["role"] == "assistant":
-            agent_history.append(AIMessage(content=message["content"]))
-    
-    # 3. Get the Agent's response
-    try:
-        with st.chat_message("assistant"):
-            with st.spinner("SpoonBot is checking our details..."):
-                response = agent_executor.invoke({
-                    "input": prompt_input,
-                    "chat_history": agent_history
-                })
+# Accept user input
+if prompt := st.chat_input("Ask about the menu or reservations..."):
+    if not agent_executor:
+        st.warning("Cannot process request: Agent failed to initialize.")
+    else:
+        # Add user message to chat history
+        st.session_state.messages.append(HumanMessage(content=prompt))
         
-        agent_response = response["output"]
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    except Exception as e:
-        agent_response = f"I apologize, but I encountered an unexpected error: {e}"
-        st.error(agent_response)
+        # Get response from the Agent
+        with st.spinner("Thinking..."):
+            try:
+                # Get the full history for the agent to use
+                history_for_agent = st.session_state.messages
 
+                # Invoke the Agent
+                response = agent_executor.invoke(
+                    {"input": prompt, "chat_history": history_for_agent}
+                )
 
-    # 4. Display the Agent's final response and add to history
-    if 'output' in response:
-        # We display the final response using st.markdown for consistent formatting
-        final_response_placeholder = st.empty() 
-        final_response_placeholder.markdown(agent_response)
-        st.session_state.messages.append({"role": "assistant", "content": agent_response})
+                # Extract Agent Output (FIXED: Handling both failure and success cases)
+                if 'output' in response: 
+                    full_response = response["output"]
+                else:
+                    # Fallback if the agent returns an unexpected format
+                    print(f"Agent returned unexpected format: {response}")
+                    full_response = "Sorry, I ran into an internal error. Please try again."
+
+            except Exception as e:
+                # Handle connection errors or other unexpected exceptions
+                print(f"Agent Invocation Error: {e}")
+                # Assign a safe string value to full_response in case of error
+                full_response = "I apologize, a system error occurred while processing your request. Please try refreshing or ask a simpler question."
+
+            # Display assistant response
+            with st.chat_message("assistant"):
+                st.markdown(full_response)
+
+            # Add the assistant's response to the chat history
+            st.session_state.messages.append(AIMessage(content=full_response))

@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 import random
+from datetime import datetime # Import datetime for current date and formatting
 
 # --- LangChain Imports ---
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -34,22 +35,50 @@ else:
 # --- NEW: Tool Definitions for Booking Simulation ---
 
 @tool
+def get_current_date() -> str:
+    """Returns the current date and time in Australian DD/MM/YYYY format for accurate temporal reference (e.g., 'today', 'tomorrow')."""
+    now = datetime.now()
+    date_str = now.strftime("%d/%m/%Y")
+    time_str = now.strftime("%I:%M %p")
+    return f"Current date is {date_str} and current time is {time_str}."
+
+@tool
 def check_and_book_reservation(date: str, time: str, party_size: int) -> str:
     """
-    Checks the restaurant's internal booking system for table availability and attempts to make a reservation.
+    Checks the restaurant's internal booking system for table availability.
     Requires a specific date (e.g., '2025-10-15'), a time (e.g., '7:00 PM'), and the number of people (e.g., 4).
+    The tool returns availability status, NOT an automatic confirmation.
     """
+    try:
+        # Attempt to parse date, assuming LLM provides YYYY-MM-DD or similar
+        # If the LLM provides '2025-10-15', this handles it.
+        date_obj = datetime.strptime(date.split('T')[0], "%Y-%m-%d") if 'T' in date else datetime.strptime(date, "%Y-%m-%d")
+        formatted_date = date_obj.strftime("%d/%m/%Y")
+    except ValueError:
+        # If date parsing fails, use the raw string provided by the user/LLM
+        formatted_date = date
+        
+    # Party Size Restriction Check
     if party_size > 6:
-        return f"Booking failed. The Golden Spoon only accepts online reservations for parties of 6 or fewer. Please call for a party of {party_size}."
+        return f"We regret to inform you that we can only process online availability checks for parties of 6 or fewer. Please call (555) 123-4567 to inquire about availability for a party of {party_size}."
     
     # Simulate availability (randomly fail about 40% of the time)
-    if random.random() < 0.4:
-        # Simulate being booked at prime times
-        return f"Booking failed. We are fully booked for a party of {party_size} on {date} at {time}. Please try a different time or date."
+    is_available = random.random() >= 0.4
+    
+    if is_available:
+        # Do NOT automatically confirm. Provide availability details and prompt for confirmation.
+        available_slots = ["6:30 PM", "7:45 PM", "8:00 PM"]
+        
+        # Check if the requested time is one of the available slots
+        if time in available_slots:
+            # If the requested time is available, state it clearly
+            return f"Great news! We have availability for a party of {party_size} on {formatted_date} at {time}. To confirm and finalize this reservation, please reply with 'Yes, book the table.'"
+        else:
+            # If the requested time is NOT available, offer alternatives
+            return f"We do not have a table available at {time} on {formatted_date} for {party_size} people, but we have tables available at: {', '.join(available_slots)}. Would you like to book one of these times instead?"
     else:
-        # Simulate successful booking
-        confirmation_code = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
-        return f"Booking successful! Your reservation for {party_size} guests on {date} at {time} is confirmed. Confirmation Code: {confirmation_code}. We look forward to seeing you!"
+        # Simulate being fully booked
+        return f"We apologize, but we are fully booked for a party of {party_size} on {formatted_date}. Please try a different time or date, or call us directly at (555) 123-4567 for late cancellations."
 
 # --- System Prompt Definition (Updated for Tool Use) ---
 SYSTEM_PROMPT = """
@@ -60,9 +89,9 @@ You are the Golden Spoon Restaurant AI. Your job is to help customers with reser
 * Your responses should be concise and elegant, matching the restaurant's upscale branding.
 * **SCOPE RESTRICTION:** You MUST only answer questions related to the Golden Spoon Restaurant. If a user asks a question unrelated to the restaurant, politely state: "I apologize, but my purpose is to assist you with inquiries regarding the Golden Spoon Restaurant only."
 * You have access to a real-time search tool (Tavily Search) for up-to-date information. Use it only when necessary.
+* **TEMPORAL CONTEXT:** When a user asks a relative time question (e.g., 'today', 'tomorrow', 'next week'), you MUST use the `get_current_date` tool first to establish the current context.
 * **RESERVATIONS:** * When the user asks to check availability or make a reservation, you MUST use the `check_and_book_reservation` tool first.
-    * If the tool returns a confirmation, present the confirmation code and details to the user.
-    * If the tool fails or suggests calling, inform the user with the tool's output.
+    * The tool returns availability status, NOT a final confirmation. Always relay the tool's message to the user and follow its instructions (e.g., prompt the user to confirm).
 * **RESTAURANT KNOWLEDGE:**
     * **Name:** Golden Spoon Restaurant
     * **Cuisine:** Classic French techniques blended with local, seasonal ingredients.
@@ -87,9 +116,9 @@ def create_gemini_agent():
         temperature=0.0
     )
 
-    # 2. Define Tools (ADD THE NEW BOOKING TOOL)
+    # 2. Define Tools (ADD THE NEW BOOKING TOOL AND DATE TOOL)
     tavily_tool = TavilySearch(api_key=TAVILY_API_KEY, max_results=3)
-    tools = [tavily_tool, check_and_book_reservation]
+    tools = [tavily_tool, check_and_book_reservation, get_current_date]
 
     # 3. Create Prompt Template (FIXED: Using MessagesPlaceholder)
     prompt = ChatPromptTemplate.from_messages(

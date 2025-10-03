@@ -129,12 +129,24 @@ st.markdown("""
         border-left: 3px solid #A3885C; /* Gold accent */
         border-radius: 10px;
     }
-    /* HIDE FOOTER ("Built with Streamlit") */
+    /* --- NEW ROBUST HIDING CSS --- */
+    
+    /* HIDE FOOTER ("Built with Streamlit 🎈") */
     footer { visibility: hidden; }
-    /* HIDE TOP-RIGHT MENU (Including the full-screen option) */
-    .css-15tx5s7 { visibility: hidden; }
-    /* Hide the Streamlit footer when embedded (old class, kept for safety) */
+
+    /* HIDE THE ENTIRE HEADER BAR (Includes full-screen button and menu) */
+    /* Targets the specific data-testid used by Streamlit for the main header */
+    [data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    /* Fallback for the old footer class (kept for safety) */
     .st-emotion-cache-czk5ad { visibility: hidden; }
+    
+    /* Fallback for hiding the main app header */
+    .stApp header {
+        display: none !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 

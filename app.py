@@ -133,10 +133,14 @@ st.markdown("""
     /* --- ULTIMATE HIDING CSS (Targets multiple potential classes/IDs) --- */
     
     /* 1. HIDE FOOTER (Built with Streamlit) - Targets the common footer tag and test ID */
-    footer { visibility: hidden; }
-    [data-testid="stFooter"] { visibility: hidden !important; }
+    /* *** ADDED display: none !important to ensure removal *** */
+    footer { display: none !important; }
+    [data-testid="stFooter"] { display: none !important; }
     
     /* 2. HIDE FULLSCREEN BUTTON & MENU - Targets the header, top-right menu, and sidebar open button */
+    #MainMenu { visibility: hidden !important; } 
+    header { visibility: hidden !important; } 
+    
     [data-testid="stHeader"] {
         display: none !important;
     }
@@ -147,7 +151,7 @@ st.markdown("""
     }
 
     /* Fallback for the old footer class */
-    .st-emotion-cache-czk5ad { visibility: hidden; }
+    .st-emotion-cache-czk5ad { visibility: hidden !important; }
     
     </style>
 """, unsafe_allow_html=True)
